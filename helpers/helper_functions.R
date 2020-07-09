@@ -32,30 +32,30 @@ discr_si <- function(k, mu, sigma)
 
 getLambda <- function(x, t, mu, sd, NTS = 30){
 
-	# x : daily increase in number of positives
-	# t : date or integer time
+  # x : daily increase in number of positives
+  # t : date or integer time
 
-	ti = as.integer(t)
+  ti = as.integer(t)
 
-	to = t - min(t) + 1
+  to = t - min(t) + 1
 
-	if( !all( to == sort(to) ) ) stop("Input must be sorted")
+  if( !all( to == sort(to) ) ) stop("Input must be sorted")
 
-	# full range of dates, in case some are missing
-	tt = min(to):max(to)
+  # full range of dates, in case some are missing
+  tt = min(to):max(to)
 
-	# fill in missing values with zeros
-	xx = 0*tt
-	xx[to] <- x
+  # fill in missing values with zeros
+  xx = 0*tt
+  xx[to] <- x
 
-	# calculate cumulative incidence
-	Lambda = colSums(do.call(rbind, lapply(1:NTS, function(i) discr_si(i,mu,sd)*data.table::shift(xx, n = i, fill = 0))))
+  # calculate cumulative incidence
+  Lambda = colSums(do.call(rbind, lapply(1:NTS, function(i) discr_si(i,mu,sd)*data.table::shift(xx, n = i, fill = 0))))
 
-	# map these back to dates present in input
-	Lambda = Lambda[to]
+  # map these back to dates present in input
+  Lambda = Lambda[to]
 
-	# return
-	Lambda
+  # return
+  Lambda
 }
 
 # calculate days since an event with specified start_date
