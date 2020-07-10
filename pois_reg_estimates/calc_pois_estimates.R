@@ -25,7 +25,7 @@ random_lag <- function(y, lags, weights) {
 
   weights <- weights / sum(weights)
 
-  for (i in seq_len(weights)) {
+  for (i in seq_along(weights)) {
     if (weights[i] > 0) {
       out <- out + weights[i] * data.table::shift(y, n = -lags[i], fill = NA)
     }
