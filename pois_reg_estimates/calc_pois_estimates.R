@@ -11,7 +11,7 @@ read_jhu <- function(level = c("County", "State", "Global"), start_date) {
   level <- match.arg(level)
   jhu_url <- paste0("https://raw.githubusercontent.com/lin-lab/COVID-data-cleaning/master/jhu_data/cleaned_data/JHU_COVID-19_", level, ".csv")
 
-  dat <- fread(jhu_url)
+  dat <- data.table::fread(jhu_url)
   dat[, date := as.Date(date, format = "%Y-%m-%d")]
   ret <- dat[date >= start_date, ]
   return(ret)
@@ -23,9 +23,9 @@ random_lag <- function(y, lags, weights) {
   stopifnot(min(weights) >= 0)
   out <- rep(0, length(y))
 
-  weights <- weights/sum(weights)
+  weights <- weights / sum(weights)
 
-  for(i in 1:length(weights)) {
+  for (i in seq_len(weights)) {
     if (weights[i] > 0) {
       out <- out + weights[i] * data.table::shift(y, n = -lags[i], fill = NA)
     }
@@ -37,12 +37,13 @@ random_lag <- function(y, lags, weights) {
 gamma_lag <- function(y, max_days = 14, shape = 5, rate = 1) {
   l <- 0:max_days
   w <- pgamma(l + 1, shape, rate) - pgamma(l, shape, rate)
-  w <- w/sum(w)
+  w <- w / sum(w)
   return(random_lag(y, l, w))
 }
 
+
 # Estimate Rt
-fit_poisson <- function(date, new_counts = NULL, cumulative_counts = NULL,
+fit_poisson <- function(date, new_counts = NULL,
                         population = NULL, days_per_knot = 30,
                         min_positive = 50, adjust_weekday = TRUE,
                         family = quasipoisson(), SI_mean = 5.2, SI_sd = 5.5,
@@ -53,24 +54,14 @@ fit_poisson <- function(date, new_counts = NULL, cumulative_counts = NULL,
   stopifnot(SI_mean > 0 && SI_sd > 0)
   stopifnot(SI_NTS > 0)
 
-  if (is.null(new_counts)) {
-    if (is.null(cumulative_counts)) {
-      stop("Either 'new_counts' or 'cumulative_counts' must be specified.")
-    }
-
-    cumulative_counts <- cumulative_counts[order(date)]
-    date <- date[order(date)]
-    new_counts <- cumulative_counts -
-      data.table::shift(cumulative_counts, n = 1, fill = 0)
-  }
   if (min(new_counts) < 0) {
     cat(sprintf("Warning: Set %d/%d negative case counts to 0.\n",
                 sum(new_counts < 0), length(new_counts)))
     new_counts[new_counts < 0] <- 0
   }
 
-  full_data <- data.table(new_counts = new_counts, date = date)
-  setorder(full_data, date)
+  full_data <- data.table::data.table(new_counts = new_counts, date = date)
+  data.table::setorder(full_data, date)
 
   if (lagged_counts) {
     full_data[, new_counts := gamma_lag(new_counts),]
@@ -82,16 +73,19 @@ fit_poisson <- function(date, new_counts = NULL, cumulative_counts = NULL,
       x = new_counts,
       t = as.integer(date),
       mu = SI_mean, sd = SI_sd, NTS = SI_NTS))]
+    full_data[, offset_orig := exp(offset_var) - 1]
   } else {
-    full_data[, offset_var := log(population)]
+    full_data[, `:=`(offset_var = log(population),
+                     offset_orig = population)]
   }
 
-  data <- full_data[cumsum(new_counts) >= min_positive,]
+  data <- full_data[cumsum(new_counts) >= min_positive, ]
 
   # data.frame to return in case of error
-  out_error <- data.table(date = full_data$date,
-                          outcome_hat = NA, ci_lower = NA, ci_upper = NA,
-                          outcome_obs = NA, offset_var = NA)
+  out_error <- data.table::data.table(date = full_data$date,
+                                      outcome_hat = NA, ci_lower = NA,
+                                      ci_upper = NA, outcome_obs = NA,
+                                      offset_var = NA)
 
   if (nrow(data) <= min_days) {
     return(out_error)
@@ -140,25 +134,21 @@ fit_poisson <- function(date, new_counts = NULL, cumulative_counts = NULL,
   # redefine weekday_matrix so when we predict, we can predict using the avg of
   # the weekdays
   weekday_matrix <- function(dates) {
-    out <- model.matrix(~weekdays(dates))[,-1]
-    out[] <- 1/7
+    out <- model.matrix(~weekdays(dates))[, -1]
+    out[] <- 1 / 7
     out
   }
 
   pred <- stats::predict.glm(fit, newdata = data, type = "link", se.fit = TRUE)
 
 
-  if (is.null(population)) {
-    transformed_offset <- exp(data$offset_var)
-  } else {
-    transformed_offset <- exp(data$offset_var) - 1
-  }
-
   zstar <- qnorm(1 - (1 - conf_level) / 2)
   out <- data.table(date = data$date,
-                    outcome_hat = exp(pred$fit) / transformed_offset,
-                    ci_lower = exp(pred$fit - zstar * pred$se.fit) / transformed_offset,
-                    ci_upper = exp(pred$fit + zstar * pred$se.fit) / transformed_offset,
+                    outcome_hat = exp(pred$fit) / data$offset_orig,
+                    ci_lower = exp(pred$fit - zstar * pred$se.fit) /
+                      data$offset_orig,
+                    ci_upper = exp(pred$fit + zstar * pred$se.fit) /
+                      data$offset_orig,
                     outcome_obs = data$new_counts,
                     offset_var = data$offset_var)
   return(out)
@@ -178,7 +168,7 @@ fit_poisson_by_unit <- function(data, days_per_knot = 30, min_positive = 50,
                    family = family, SI_mean = SI_mean, SI_sd = SI_sd,
                    SI_NTS = SI_NTS, lagged_counts = lagged_counts,
                    min_days = min_days)
-  setkey(data, UID, date)
+  data.table::setkey(data, UID, date)
 
   fit_df_lst <- list()
   for (ii in 1:n_uids) {
@@ -210,11 +200,11 @@ fit_poisson_by_unit <- function(data, days_per_knot = 30, min_positive = 50,
   all_fitted[, date_str := format(date, "%Y-%m-%d")]
   all_fitted[, date := NULL]
   data[, date_str := format(date, "%Y-%m-%d")]
-  setkey(data, UID, date_str)
-  setkey(all_fitted, UID, date_str)
+  data.table::setkey(data, UID, date_str)
+  data.table::setkey(all_fitted, UID, date_str)
 
   ret <- data[all_fitted, nomatch = NULL]
-  ret[, date_str:= NULL]
+  ret[, date_str := NULL]
   return(ret)
 }
 
@@ -232,5 +222,3 @@ system.time({
 fwrite(state_fit, file = "jhu_state_rt_case_death_rate.csv")
 fwrite(county_fit, file = "jhu_county_rt_case_death_rate.csv")
 fwrite(global_fit, file = "jhu_global_rt_case_death_rate.csv")
-
-
