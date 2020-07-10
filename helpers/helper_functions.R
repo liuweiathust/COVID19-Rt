@@ -1,3 +1,7 @@
+# The vnapply and discr_si function are taken directly from the EpiEstim R
+# package (https://cran.r-project.org/package=EpiEstim)
+# They are copyright Cori et al.
+
 # the following is taken directly from EpiEstim:
 vnapply <- function(X, FUN, ...) {
   vapply(X, FUN, numeric(1), ...)
